@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deal Finder</title>
+<style>
+:root{--bg:#f5f5f7;--card:#fff;--tx:#1d1d1f;--mut:#6e6e73;--ac:#d01012;--bd:#d2d2d7;--ok:#1a8f3c;--mid:#c77700}
+@media(prefers-color-scheme:dark){:root{--bg:#000;--card:#1c1c1e;--tx:#f5f5f7;--mut:#98989d;--bd:#3a3a3c;--ok:#3ddc6a;--mid:#ffb340}}
+*{box-sizing:border-box}body{margin:0;padding:16px;background:var(--bg);color:var(--tx);font:16px -apple-system,system-ui,sans-serif}
+h1{margin:0 0 4px;color:var(--ac)}.box{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:14px;margin-bottom:12px}
+label{display:block;font-size:13px;color:var(--mut);margin:8px 0 3px}
+input,select{width:100%;padding:11px;border:1px solid var(--bd);border-radius:10px;background:var(--bg);color:var(--tx);font-size:16px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+button.go{width:100%;margin-top:14px;padding:14px;border:0;border-radius:10px;background:var(--ac);color:#fff;font-size:17px}
+.tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}
+.tabs button{padding:11px;border:1px solid var(--bd);border-radius:10px;background:var(--card);color:var(--tx);font-size:16px}
+.tabs button.on{background:var(--ac);color:#fff;border-color:var(--ac)}
+.set{display:grid;grid-template-columns:96px 1fr;gap:12px;color:inherit;text-decoration:none}
+.set img{width:96px;height:96px;object-fit:contain;background:#fff;border-radius:8px}
+h3{margin:0 0 2px;font-size:16px}.mut{color:var(--mut);font-size:13px}.pr{font-weight:700;color:var(--ac)}
+.v{font-weight:700}.v.g{color:var(--ok)}.v.m{color:var(--mid)}.v.b{color:var(--ac)}
+table{width:100%;border-collapse:collapse;font-size:13px;margin:6px 0}td,th{padding:3px 4px;text-align:right;border-bottom:1px solid var(--bd)}th:first-child,td:first-child{text-align:left}
+ul{margin:4px 0;padding-left:18px;font-size:13px}.go2{font-size:13px;color:var(--ac)}
+a.btn{display:inline-block;padding:8px 11px;margin:4px 4px 0 0;border-radius:10px;background:var(--bd);color:var(--tx);font-size:14px;text-decoration:none}
+.disc{font-size:11px;color:var(--mut);margin-top:6px}
+.hide{display:none}
+</style></head><body>
+<h1>🛒 Deal Finder</h1>
+<div class="mut">Données LEGO mises à jour : <span id="upd"></span></div>
+<div class="tabs"><button id="tL" class="on">🧱 LEGO</button><button id="tE">📱 Électronique</button></div>
+
+<div id="pL" class="box">
+<label>Thème (ex : City, Star Wars, Technic) — vide = tous</label><input id="theme" list="themes" placeholder="Star Wars"><datalist id="themes"></datalist>
+<label>Nom ou numéro du set (optionnel)</label><input id="query" placeholder="Falcon ou 75192">
+<div class="row"><div><label>Prix min (CHF)</label><input id="pmin" type="number" inputmode="decimal" value="0"></div>
+<div><label>Prix max (CHF)</label><input id="pmax" type="number" inputmode="decimal" value="100"></div></div>
+<div class="row"><div><label>Sortis depuis (années)</label><input id="years" type="number" inputmode="numeric" value="3"></div>
+<div><label>Taux € → CHF</label><input id="rate" type="number" inputmode="decimal" step="0.01" value="0.93"></div></div>
+<button class="go" id="goL">Chercher</button><div class="mut" id="msg"></div></div>
+
+<div id="pE" class="box hide">
+<label>Catégorie</label><select id="cat"></select>
+<label>Produit (vide = toute la catégorie, ou écris n'importe quel produit)</label><input id="prod" list="prods" placeholder="PlayStation 5, iPhone 16, AirPods…"><datalist id="prods"></datalist>
+<button class="go" id="goE">Voir les fiches</button><div class="mut" id="msg2"></div>
+</div>
+
+<div id="out"></div>
+<script src="data.js"></script>
+<script src="products.js"></script>
+<script>
+const $=id=>document.getElementById(id);
+const THIS=new Date().getFullYear(), NOW=new Date();
+$('upd').textContent=typeof UPDATED!=='undefined'?UPDATED:'?';
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+// ---------- onglets ----------
+function tab(e){$('pL').classList.toggle('hide',e);$('pE').classList.toggle('hide',!e);$('tL').classList.toggle('on',!e);$('tE').classList.toggle('on',e);$('out').innerHTML='';}
+$('tL').onclick=()=>tab(false);$('tE').onclick=()=>tab(true);
+
+// ---------- LEGO ----------
+const themes=[...new Set(DATA.map(s=>s.h))].sort();
+$('themes').innerHTML=themes.map(t=>'<option value="'+esc(t)+'">').join('');
+const PREMIUM=['icons','creator expert','star wars','harry potter','technic','ideas','architecture','art','botanical','lord of the rings','disney','marvel','super heroes','speed champions','jurassic','back to the future','minecraft'];
+const LOW=['duplo','friends','classic','city','juniors','dots','gabby','bluey','unikitty','trolls','minions','vidiyo'];
+function analyse(s){
+ const R=[];let sc=40;const t=s.h.toLowerCase(),b=(s.b||'').toLowerCase();
+ const ppp=s.p?s.e/s.p:null;
+ if(s.p>=3000){sc+=12;R.push('très grand set ('+s.p+' pièces) : ces sets montent le plus car peu de gens peuvent les racheter');}
+ else if(s.p>=1500){sc+=9;R.push('grand set ('+s.p+' pièces), gros public de collectionneurs');}
+ else if(s.p>=800){sc+=5;R.push(s.p+' pièces : taille intéressante');}
+ else if(s.p&&s.p<200){sc-=8;R.push('petit set ('+s.p+' pièces) : produit en masse, il prend rarement de la valeur');}
+ if(ppp!=null){
+  if(ppp<0.08){sc+=10;R.push('prix par pièce très bas ('+(ppp*100).toFixed(1)+' ct €/pièce), bonne affaire dès le départ');}
+  else if(ppp<0.10){sc+=6;R.push('bon prix par pièce ('+(ppp*100).toFixed(1)+' ct)');}
+  else if(ppp<0.13){sc+=2;}
+  else if(ppp>0.17){sc-=8;R.push('cher par pièce ('+(ppp*100).toFixed(1)+' ct) : peu de marge pour la revente');}
+ }
+ if(b.includes('modular')){sc+=8;R.push('série « Modular Buildings » : l\'une des plus recherchées');}
+ if(b.includes('ultimate collector')){sc+=10;R.push('série UCS (Ultimate Collector) : valeur de collection élevée');}
+ if(PREMIUM.some(k=>t.includes(k))){sc+=8;R.push('thème « '+s.h+' » : forte demande à long terme');}
+ else if(LOW.some(k=>t===k||t.includes(k))){sc-=4;R.push('thème « '+s.h+' » : plutôt orienté jouet, moins collectionné');}
+ if(s.m>=6){sc+=4;R.push(s.m+' minifigures : les personnages font monter la valeur');}
+ if(s.a&&/exclusive|limited/i.test(s.a)){sc+=6;R.push('disponibilité limitée ('+s.a+')');}
+ if(s.r>=4.2){sc+=4;R.push('très bien noté ('+s.r+'/5)');}
+ let st='en vente',gap=0;
+ if(s.x){const d=new Date(s.x);
+  if(d<NOW){st='retiré';sc+=6;R.push('déjà retiré de la vente depuis '+s.x+' : l\'offre ne revient plus');}
+  else if((d-NOW)/864e5<400){st='bientôt retiré';sc+=8;R.push('retrait prévu vers '+s.x+' : souvent le meilleur moment pour acheter');}
+ }
+ if(st==='en vente')gap=2;
+ sc=Math.max(0,Math.min(100,sc));
+ const rate=Math.max(0,Math.min(0.13,(sc-35)*0.0025));
+ return {sc,st,rate,gap,R};
+}
+const proj=(p,r,g,n)=>p*Math.pow(1+r,Math.max(0,n-g));
+function card(s){
+ const a=analyse(s),p=s.c,sc=a.sc,cls=sc>=65?'g':sc>=50?'m':'b';
+ const verdict=sc>=65?'👍 Bon achat':sc>=50?'😐 Correct':'👎 Pas pour investir';
+ const yrs=[1,3,5,10];
+ const row=(l,r)=>'<tr><td>'+l+'</td>'+yrs.map(n=>'<td>'+proj(p,r,a.gap,n).toFixed(0)+'</td>').join('')+'</tr>';
+ const why=a.R.length?a.R.map(x=>'<li>'+esc(x)+'</li>').join(''):'<li>Aucun point fort particulier.</li>';
+ const warn=sc<50?'<li>Achète-le pour le plaisir de construire, pas pour la revente.</li>':'';
+ return '<div class="box"><a class="set" target="_blank" rel="noopener" href="https://www.brickeconomy.com/search?query='+s.n+'">'
+ +'<img loading="lazy" src="https://images.brickset.com/sets/small/'+s.n+'-'+(s.v||1)+'.jpg" alt="" onerror="this.style.visibility=\'hidden\'">'
+ +'<div><h3>'+esc(s.n)+' — '+esc(s.t)+'</h3><div class="mut">'+esc(s.h)+(s.b?' · '+esc(s.b):'')+' · '+s.y+' · '+(s.p||'?')+' pièces</div>'
+ +'<div><span class="pr">'+p.toFixed(2)+' CHF</span> · <span class="mut">'+a.st+'</span></div>'
+ +'<div class="v '+cls+'">'+verdict+' · note '+sc+'/100</div><div class="go2">Voir sur BrickEconomy ›</div></div></a>'
+ +'<ul><li>Pièces : '+(s.p||'?')+' · Minifigures : '+(s.m||0)+' · Prix par pièce : '+(s.p?(s.c/s.p*100).toFixed(1)+' ct CHF':'?')+'</li><li>Sortie : '+s.y+' · Statut : '+a.st+(s.x?' (fin de vente '+s.x+')':'')+'</li><li>Disponibilité : '+esc(s.a||'?')+' · Note des fans : '+(s.r?s.r+'/5':'pas de note')+'</li><li>Numéro : '+esc(s.n)+'-'+(s.v||1)+'</li></ul>'
+ +'<table><tr><th>Valeur estimée (CHF)</th><th>1 an</th><th>3 ans</th><th>5 ans</th><th>10 ans</th></tr>'
+ +row('Prudent',a.rate/2)+row('Probable',a.rate)+row('Optimiste',a.rate*1.5)+'</table>'
+ +'<div class="mut">Hausse annuelle probable : '+(a.rate*100).toFixed(1)+' %'+(a.gap?' (presque rien tant que le set est encore en vente)':'')+'</div>'
+ +'<b style="font-size:13px">Pourquoi (ne pas) l\'acheter :</b><ul>'+why+warn+'</ul></div>';
+}
+function searchL(){
+ const th=$('theme').value.trim().toLowerCase(), q=$('query').value.trim().toLowerCase();
+ const pmin=parseFloat($('pmin').value)||0,pmax=parseFloat($('pmax').value)||1e9,rate=parseFloat($('rate').value)||1;
+ const minY=THIS-(Math.max(1,parseInt($('years').value)||1))+1;
+ const rows=DATA.filter(s=>s.e!=null&&s.y>=minY&&(!th||s.h.toLowerCase().includes(th))&&(!q||(s.t+' '+s.n).toLowerCase().includes(q)))
+  .map(s=>({...s,c:Math.round(s.e*rate*100)/100})).filter(s=>s.c>=pmin&&s.c<=pmax).sort((a,b)=>a.c-b.c);
+ $('msg').textContent=rows.length+' set(s) trouvé(s), du moins cher au plus cher (200 max affichés).';
+ $('out').innerHTML=rows.slice(0,200).map(card).join('')+(rows.length?'<div class="disc">Valeurs futures = estimations par règles simples (taille, prix par pièce, thème, retrait). Pas un conseil financier, rien n\'est garanti : le marché LEGO peut aussi baisser. Les images demandent internet.</div>':'');
+}
+$('goL').onclick=searchL;
+
+// ---------- Électronique ----------
+const CATNAMES=[...new Set(PRODUCTS.map(p=>p[0]))];
+$('cat').innerHTML='<option value="">Toutes</option>'+CATNAMES.map(c=>'<option>'+esc(c)+'</option>').join('');
+function fillProds(){const c=$('cat').value;$('prods').innerHTML=PRODUCTS.filter(p=>!c||p[0]===c).map(p=>'<option value="'+esc(p[1])+'">').join('');}
+$('cat').onchange=fillProds;fillProds();
+const SHOPS=['Toppreise|https://www.toppreise.ch/index.php?search=','Galaxus|https://www.galaxus.ch/fr/search?q=','Digitec|https://www.digitec.ch/fr/search?q=','Google Shopping|https://www.google.ch/search?tbm=shop&q=','Amazon.de|https://www.amazon.de/s?k=','Ricardo (occasion)|https://www.ricardo.ch/fr/s/'];
+function shopLinks(n){return SHOPS.map(x=>{const [l,u]=x.split('|');return '<a class="btn" target="_blank" rel="noopener" href="'+u+encodeURIComponent(n)+'">'+l+'</a>';}).join('');}
+function ecard(p){
+ const age=THIS-p[2];
+ const note=age>=2?'Modèle sorti en '+p[2]+' : un modèle plus récent existe sûrement, ce qui fait baisser son prix.':age===1?'Sorti en '+p[2]+' : le prix a commencé à baisser.':'Sorti en '+p[2]+' : prix encore élevé, attends une promo.';
+ return '<div class="box"><h3>'+esc(p[1])+'</h3><div class="mut">'+esc(p[0])+' · sorti en '+p[2]+'</div>'
+ +'<ul><li><b>Caractéristiques :</b> '+esc(p[3])+'</li><li><b>Pour qui :</b> '+esc(p[4])+'</li><li><b>👍 Points forts :</b> '+esc(p[5])+'</li><li><b>👎 Points faibles :</b> '+esc(p[6])+'</li><li><b>💡 Conseil d\'achat :</b> '+esc(p[7])+'</li><li>'+esc(note)+'</li></ul>'
+ +'<div class="mut">Compare le prix du jour :</div>'+shopLinks(p[1])+'</div>';
+}
+function searchE(){
+ const q=$('prod').value.trim().toLowerCase(),cat=$('cat').value;
+ let list=PRODUCTS.filter(p=>(!cat||p[0]===cat)&&(!q||p[1].toLowerCase().includes(q)));
+ let html=list.map(ecard).join('');
+ if(q&&!list.length){const n=$('prod').value.trim();html='<div class="box"><h3>'+esc(n)+'</h3><div class="mut">Produit pas dans ma liste : pas de fiche détaillée, mais tu peux comparer les prix.</div>'+shopLinks(n)+'<ul><li>Vérifie la garantie suisse (2 ans) et que le modèle est la version européenne.</li><li>Regarde le prix avec la livraison incluse sur le comparateur.</li></ul></div>';}
+ $('msg2').textContent=list.length+' produit(s).';
+ $('out').innerHTML=html+'<div class="disc">Les prix de l\'électronique se lisent en direct sur les comparateurs (internet requis) : je n\'affiche pas de prix pour ne pas te donner un chiffre périmé. Fiches rédigées à la main, à vérifier avant l\'achat. L\'électronique perd de la valeur avec le temps : achète au meilleur prix, pas pour revendre plus cher.</div>';
+}
+$('goE').onclick=searchE;</script></body></html>
